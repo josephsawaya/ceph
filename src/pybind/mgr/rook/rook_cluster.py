@@ -625,15 +625,9 @@ class RookCluster(object):
             new.spec.mon.count = newcount
             return new
         return self._patch(ccl.CephCluster, 'cephclusters', self.rook_env.cluster_name, _update_mon_count)
-    """
-    def add_osds(self, drive_group, matching_hosts):
-        # type: (DriveGroupSpec, List[str]) -> str
-        
-        # Rook currently (0.8) can only do single-drive OSDs, so we
-        # treat all drive groups as just a list of individual OSDs.
-        
-        block_devices = drive_group.data_devices.paths if drive_group.data_devices else []
-        directories = drive_group.data_directories
+    
+    def add_osds(self, drive_group, matching_hosts, storage_class_name):
+        # type: (DriveGroupSpec, List[str], str) -> str
 
         assert drive_group.objectstore in ("bluestore", "filestore")
 
@@ -644,58 +638,86 @@ class RookCluster(object):
             # let us do "test" operations that would check if items with
             # matching names were in existing lists.
             if not new_cluster.spec.storage:
-                raise orchestrator.OrchestratorError('new_cluster missing storage attribute')
+                new_cluster.spec.storage = ccl.Storage()
 
-            if not hasattr(new_cluster.spec.storage, 'nodes'):
-                new_cluster.spec.storage.nodes = ccl.NodesList()
+            if not new_cluster.spec.storage.storageClassDeviceSets:
+                new_cluster.spec.storage.storageClassDeviceSets = ccl.StorageClassDeviceSetsList()
 
-            current_nodes = getattr(current_cluster.spec.storage, 'nodes', ccl.NodesList())
-            matching_host = matching_hosts[0]
-            
-            if matching_host not in [n.name for n in current_nodes]:
-                # FIXME: ccl.Config stopped existing since rook changed
-                # their CRDs, check if config is actually necessary for this
-                
-                pd = ccl.NodesItem(
-                    name=matching_host,
-                    config=ccl.Config(
-                        storeType=drive_group.objectstore
-                    )
+            current_sc_device_sets = getattr(current_cluster.spec.storage, 'storageClassDeviceSets', ccl.StorageClassDeviceSetsList())
+            # return None
+            if drive_group.service_id not in [scds.name for scds in current_sc_device_sets]:
+                assert drive_group.service_id is not None
+                new_scds = ccl.StorageClassDeviceSetsItem(
+                    name=drive_group.service_id,
+                    volumeClaimTemplates= ccl.VolumeClaimTemplatesList(),
+                    count=1,
+                    encrypted=drive_group.encrypted,
+                    portable=False
                 )
+                new_scds.volumeClaimTemplates.append(ccl.VolumeClaimTemplatesItem(
+                    metadata=ccl.Metadata(
+                        name="data"
+                    ),
+                    spec=ccl.Spec(
+                        storageClassName=storage_class_name,
+                        volumeMode="Block",
+                        accessModes=ccl.CrdObjectList(["ReadWriteOnce"]),
+                        resources={
+                            "requests":{
+                                    "storage": 1
+                            }
+                        },
+                        selector=ccl.Selector(
+                            matchExpressions=ccl.MatchExpressionsList()
+                        )
 
-                if block_devices:
-                    pd.devices = ccl.DevicesList(
-                        ccl.DevicesItem(name=d.path) for d in block_devices
                     )
-                if directories:
-                    pd.directories = ccl.DirectoriesList(
-                        ccl.DirectoriesItem(path=p) for p in directories
-                    )
-                new_cluster.spec.storage.nodes.append(pd)
+                ))
+                new_scds.volumeClaimTemplates[0].spec.selector.matchExpressions.append(ccl.MatchExpressionsItem(
+                    key="kubernetes.io/hostname",
+                    operator="In",
+                    values=ccl.CrdObjectList(matching_hosts)
+                ))
+                new_cluster.spec.storage.storageClassDeviceSets.append(new_scds)
             else:
-                for _node in new_cluster.spec.storage.nodes:
-                    current_node = _node  # type: ccl.NodesItem
-                    if current_node.name == matching_host:
-                        if block_devices:
-                            if not hasattr(current_node, 'devices'):
-                                current_node.devices = ccl.DevicesList()
-                            current_device_names = set(d.name for d in current_node.devices)
-                            new_devices = [bd for bd in block_devices if bd.path not in current_device_names]
-                            current_node.devices.extend(
-                                ccl.DevicesItem(name=n.path) for n in new_devices
-                            )
+                for _set in new_cluster.spec.storage.storageClassDeviceSets:
+                    current_set = _set  # type: ccl.StorageClassDeviceSetsItem
+                    if current_set.name == drive_group.service_id:
+                        _set = ccl.StorageClassDeviceSetsItem(
+                            name=drive_group.service_id,
+                            volumeClaimTemplates= ccl.VolumeClaimTemplatesList(),
+                            count=1,
+                            encrypted=drive_group.encrypted,
+                            portable=False
+                        )
+                        _set.volumeClaimTemplates.append(ccl.VolumeClaimTemplatesItem(
+                            metadata=ccl.Metadata(
+                                name="data"
+                            ),
+                            spec=ccl.Spec(
+                                storageClassName=storage_class_name,
+                                volumeMode="Block",
+                                accessModes=ccl.CrdObjectList("ReadWriteOnce"),
+                                resources=dict({
+                                    "requests":dict({
+                                            "storage": 1
+                                    })
+                                }),
+                                selector=ccl.Selector(
+                                    matchExpressions=ccl.MatchExpressionsList()
+                                )
 
-                        if directories:
-                            if not hasattr(current_node, 'directories'):
-                                current_node.directories = ccl.DirectoriesList()
-                            new_dirs = list(set(directories) - set([d.path for d in current_node.directories]))
-                            current_node.directories.extend(
-                                ccl.DirectoriesItem(path=n) for n in new_dirs
                             )
+                        ))
+                        _set.volumeClaimTemplates[0].spec.selector.matchExpressions.append(ccl.MatchExpressionsItem(
+                            key="kubernetes.io/hostname",
+                            operator="In",
+                            values=ccl.CrdObjectList(matching_hosts)
+                        ))
             return new_cluster
 
         return self._patch(ccl.CephCluster, 'cephclusters', self.rook_env.cluster_name, _add_osds)
-    """
+    
     def _patch(self, crd: Type, crd_name: str, cr_name: str, func: Callable[[CrdClassT, CrdClassT], CrdClassT]) -> str:
         current_json = self.rook_api_get(
             "{}/{}".format(crd_name, cr_name)
