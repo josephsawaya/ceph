@@ -355,30 +355,6 @@ def rook_cluster(ctx, config):
                 'count': num_hosts,
                 'allowMultiplePerNode': True,
             },
-            'storage': {
-                'storageClassDeviceSets': [
-                    {
-                        'name': 'scratch',
-                        'count': num_devs,
-                        'portable': False,
-                        'volumeClaimTemplates': [
-                            {
-                                'metadata': {'name': 'data'},
-                                'spec': {
-                                    'resources': {
-                                        'requests': {
-                                            'storage': '10Gi'  # <= (lte) the actual PV size
-                                        }
-                                    },
-                                    'storageClassName': 'scratch',
-                                    'volumeMode': 'Block',
-                                    'accessModes': ['ReadWriteOnce'],
-                                },
-                            },
-                        ],
-                    }
-                ],
-            },
         }
     }
     teuthology.deep_merge(cluster['spec'], config.get('spec', {}))
@@ -463,9 +439,10 @@ def rook_toolbox(ctx, config):
             '-f', 'rook/cluster/examples/kubernetes/ceph/toolbox.yaml',
         ], check_status=False)
 
-
 @contextlib.contextmanager
-def wait_for_osds(ctx, config):
+def deploy_osds(ctx, config):
+    _shell(ctx, config, ['ceph', 'orch', 'apply', 'osd', '--all-available-devices'])
+
     cluster_name = config.get('cluster', 'ceph')
 
     want = ctx.rook[cluster_name].num_osds
@@ -615,9 +592,9 @@ def task(ctx, config):
             lambda: ceph_log(ctx, config),
             lambda: rook_cluster(ctx, config),
             lambda: rook_toolbox(ctx, config),
-            lambda: wait_for_osds(ctx, config),
             lambda: ceph_config_keyring(ctx, config),
             lambda: ceph_clients(ctx, config),
+            lambda: deploy_osds(ctx, config),
     ):
         if not hasattr(ctx, 'managers'):
             ctx.managers = {}

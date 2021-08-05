@@ -5,3 +5,8 @@ tasks:
     - ceph orch status
     - ceph orch ps
     - ceph orch ls
+    - ceph orch device ls
+    - ceph orch apply osd --all-available-devices
+    - ceph orch apply nfs test-nfs
+    - ceph orch apply rgw test-rgw
+    - ceph orch rm osd 0 --force --replace
