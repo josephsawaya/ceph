@@ -359,7 +359,7 @@ def rook_cluster(ctx, config):
                 'storageClassDeviceSets': [
                     {
                         'name': 'scratch',
-                        'count': num_devs,
+                        'count': 1,
                         'portable': False,
                         'volumeClaimTemplates': [
                             {
@@ -467,8 +467,25 @@ def rook_toolbox(ctx, config):
 @contextlib.contextmanager
 def rook_post_config(ctx, config):
     try:
+        cluster_name = config['cluster']
         _shell(ctx, config, ['ceph', 'config', 'set', 'mgr', 'mgr/rook/storage_class',
                              'scratch'])
+        _shell(ctx, config, ['ceph', 'orch', 'device', 'ls'])
+        _shell(ctx, config, ['ceph', 'orch', 'apply', 'osd', '--all-available-devices'])    
+
+        want = ctx.rook[cluster_name].num_osds
+        log.info(f'Waiting for {want} OSDs')
+        with safe_while(sleep=10, tries=90, action="check osd count") as proceed:
+            while proceed():
+                p = _shell(ctx, config, ['ceph', 'osd', 'stat', '-f', 'json'],
+                        stdout=BytesIO(),
+                        check_status=False)
+                if p.exitstatus == 0:
+                    r = json.loads(p.stdout.getvalue().decode('utf-8'))
+                    have = r.get('num_up_osds', 0)
+                    if have == want:
+                        break
+                    log.info(f' have {have}/{want} OSDs')
         yield
 
     except Exception as e:
@@ -483,7 +500,7 @@ def rook_post_config(ctx, config):
 def wait_for_osds(ctx, config):
     cluster_name = config.get('cluster', 'ceph')
 
-    want = ctx.rook[cluster_name].num_osds
+    want = 1
     log.info(f'Waiting for {want} OSDs')
     with safe_while(sleep=10, tries=90, action="check osd count") as proceed:
         while proceed():
