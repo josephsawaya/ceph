@@ -437,7 +437,7 @@ class RookOrchestrator(MgrModule, orchestrator.Orchestrator):
         if spec.placement.hosts or spec.placement.label:
             raise RuntimeError("Host list or label is not supported by rook.")
 
-        return self.rook_cluster.update_mon_count(spec.placement.count)
+        return self.rook_cluster.update_mon_count(spec.placement.count, raise_if_exception(self.get_hosts()))
 
     @handle_orch_error
     def apply_mds(self, spec):

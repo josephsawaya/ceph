@@ -829,13 +829,17 @@ class RookCluster(object):
     def node_exists(self, node_name: str) -> bool:
         return node_name in self.get_node_names()
 
-    def update_mon_count(self, newcount: Optional[int]) -> str:
+    def update_mon_count(self, newcount: Optional[int], hosts: List) -> str:
         def _update_mon_count(current, new):
             # type: (ccl.CephCluster, ccl.CephCluster) -> ccl.CephCluster
             if newcount is None:
                 raise orchestrator.OrchestratorError('unable to set mon count to None')
+            if newcount % 2 == 0:
+                raise orchestrator.OrchestratorError(f'mon count {newcount} cannot be even, must be odd to support a healthy quorum')
+            if newcount > len(hosts):
+                raise orchestrator.OrchestratorError(f'cannot start {newcount} mons on {len(hosts)} node(s) when allowMultiplePerNode is false')
             if not new.spec.mon:
-                raise orchestrator.OrchestratorError("mon attribute not specified in new spec")
+                new.spec.mon = ccl.Mon()
             new.spec.mon.count = newcount
             return new
         return self._patch(ccl.CephCluster, 'cephclusters', self.rook_env.cluster_name, _update_mon_count)
