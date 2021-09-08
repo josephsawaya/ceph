@@ -23,6 +23,22 @@ from tasks.cephadm import update_archive_setting
 log = logging.getLogger(__name__)
 
 
+def kubeshell(ctx, config):
+    if isinstance(config, list):
+        config = {'commands': config}
+    for cmd in config.get('commands', []):
+        if isinstance(cmd, str):
+            _kubeshell(ctx, config, cmd.split(' '))
+        else:
+            _kubeshell(ctx, config, cmd)
+
+def _kubeshell(ctx, config, args, **kwargs):
+    cluster_name = config.get('cluster', 'ceph')
+    return ctx.rook[cluster_name].remote.run(
+        args=args,
+        **kwargs
+    )
+
 def _kubectl(ctx, config, args, **kwargs):
     cluster_name = config.get('cluster', 'ceph')
     return ctx.rook[cluster_name].remote.run(
@@ -492,7 +508,6 @@ def wait_for_osds(ctx, config):
                 log.info(f' have {have}/{want} OSDs')
 
     yield
-
 
 @contextlib.contextmanager
 def ceph_config_keyring(ctx, config):
