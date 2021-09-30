@@ -4,6 +4,7 @@ Rook cluster task
 import argparse
 import configobj
 import contextlib
+import datetime
 import json
 import logging
 import os
@@ -138,6 +139,7 @@ def rook_operator(ctx, config):
                     if status == 'Running':
                         op_name = name
                         break
+
 
         # log operator output
         op_job = _kubectl(
@@ -294,6 +296,7 @@ def build_initial_config(ctx, config):
     conf = configobj.ConfigObj(path, file_error=True)
 
     # overrides
+    log.info(config.get('conf',{}).items())
     for section, keys in config.get('conf',{}).items():
         for key, value in keys.items():
             log.info(" override: [%s] %s = %s" % (section, key, value))
@@ -646,6 +649,21 @@ def task(ctx, config):
             yield
 
         finally:
+            log.info("wait for services to be running")
+            with safe_while(sleep=10, tries=90, action="waiting for daemons to all be running") as proceed:
+                while proceed():
+                    done = True
+                    ret = _shell(ctx, config, ['ceph', 'orch', 'ls', '-f', 'json'], stdout=BytesIO())
+                    if ret.exitstatus == 0:
+                        r = json.loads(ret.stdout.getvalue().decode('utf-8'))
+                        for service in r:
+                            if service['service_type'] in ['rgw', 'mds', 'nfs']:
+                                if service['status']['running'] != service['status']['size']:
+                                    done = False
+                    if done:
+                        break 
+            # wait for pods to run                      
+            log.info("start removing services")
             to_remove = []
             ret = _shell(ctx, config, ['ceph', 'orch', 'ls', '-f', 'json'], stdout=BytesIO())
             if ret.exitstatus == 0:
