@@ -17,8 +17,13 @@ FuturizedStore::create(const std::string& type,
 {
   if (type == "cyanstore") {
     return seastar::make_ready_future<std::unique_ptr<FuturizedStore>>(std::make_unique<crimson::os::CyanStore>(data));
-  } else if (type == "seastore") {
-    return seastar::make_ready_future<std::unique_ptr<FuturizedStore>>(crimson::os::seastore::make_seastore(data, values));
+  } 
+  else if (type == "seastore") {
+    return crimson::os::seastore::make_seastore(
+      data, values
+    ).then([] (auto seastore) {
+      return seastar::make_ready_future<std::unique_ptr<FuturizedStore>>(seastore.release());
+    });
   } else {
 #ifdef WITH_BLUESTORE
     // use AlienStore as a fallback. It adapts e.g. BlueStore.

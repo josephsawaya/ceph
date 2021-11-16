@@ -4,6 +4,7 @@
 #include "seastore.h"
 
 #include <algorithm>
+#include <linux/blkzoned.h>
 
 #include <boost/algorithm/string/trim.hpp>
 #include <fmt/format.h>
@@ -23,6 +24,7 @@
 
 #include "crimson/os/seastore/segment_cleaner.h"
 #include "crimson/os/seastore/segment_manager/block.h"
+#include "crimson/os/seastore/segment_manager/zns.h"
 #include "crimson/os/seastore/collection_manager/flat_collection_manager.h"
 #include "crimson/os/seastore/onode_manager/staged-fltree/fltree_onode_manager.h"
 #include "crimson/os/seastore/omap_manager/btree/btree_omap_manager.h"
@@ -1360,45 +1362,63 @@ uuid_d SeaStore::get_fsid() const
   return segment_manager->get_meta().seastore_id;
 }
 
-std::unique_ptr<SeaStore> make_seastore(
+seastar::future<std::unique_ptr<SeaStore>> make_seastore(
   const std::string &device,
   const ConfigValues &config)
 {
-  auto sm = std::make_unique<
-    segment_manager::block::BlockSegmentManager
-    >(device + "/block");
+  seastar::do_with(
+    size_t(),
+    [&] (auto nr_zones) {
+      return seastar::open_file_dma(
+        device + "/block", 
+        seastar::open_flags::rw
+      ).then([&] (auto file) {
+        return file.ioctl(BLKGETNRZONES, (void *)&nr_zones);
+      }).then([&] (auto ret) {
+        crimson::os::seastore::SegmentManagerRef sm;
+        if(nr_zones != 0){
+          sm = std::make_unique<
+            segment_manager::block::BlockSegmentManager
+            >(device + "/block");
+        } else {
+          sm = std::make_unique<
+            segment_manager::zns::ZNSSegmentManager
+            >(device + "/block");
+        }
+        auto scanner = std::make_unique<ExtentReader>();
+        auto& scanner_ref = *scanner.get();
+        auto segment_cleaner = std::make_unique<SegmentCleaner>(
+          SegmentCleaner::config_t::get_default(),
+          std::move(scanner),
+          false /* detailed */);
 
-  auto scanner = std::make_unique<ExtentReader>();
-  auto& scanner_ref = *scanner.get();
-  auto segment_cleaner = std::make_unique<SegmentCleaner>(
-    SegmentCleaner::config_t::get_default(),
-    std::move(scanner),
-    false /* detailed */);
+        auto journal = std::make_unique<Journal>(*sm, scanner_ref);
+        auto cache = std::make_unique<Cache>(scanner_ref);
+        auto lba_manager = lba_manager::create_lba_manager(*sm, *cache);
 
-  auto journal = std::make_unique<Journal>(*sm, scanner_ref);
-  auto cache = std::make_unique<Cache>(scanner_ref);
-  auto lba_manager = lba_manager::create_lba_manager(*sm, *cache);
+        auto epm = std::make_unique<ExtentPlacementManager>(*cache, *lba_manager);
 
-  auto epm = std::make_unique<ExtentPlacementManager>(*cache, *lba_manager);
+        journal->set_segment_provider(&*segment_cleaner);
 
-  journal->set_segment_provider(&*segment_cleaner);
+        auto tm = std::make_unique<TransactionManager>(
+          *sm,
+          std::move(segment_cleaner),
+          std::move(journal),
+          std::move(cache),
+          std::move(lba_manager),
+          std::move(epm),
+          scanner_ref);
 
-  auto tm = std::make_unique<TransactionManager>(
-    *sm,
-    std::move(segment_cleaner),
-    std::move(journal),
-    std::move(cache),
-    std::move(lba_manager),
-    std::move(epm),
-    scanner_ref);
-
-  auto cm = std::make_unique<collection_manager::FlatCollectionManager>(*tm);
-  return std::make_unique<SeaStore>(
-    device,
-    std::move(sm),
-    std::move(tm),
-    std::move(cm),
-    std::make_unique<crimson::os::seastore::onode::FLTreeOnodeManager>(*tm));
+        auto cm = std::make_unique<collection_manager::FlatCollectionManager>(*tm);
+        return std::make_unique<SeaStore>(
+          device,
+          std::move(sm),
+          std::move(tm),
+          std::move(cm),
+          std::make_unique<crimson::os::seastore::onode::FLTreeOnodeManager>(*tm));
+      });
+    }
+  );
 }
 
 }
