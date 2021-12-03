@@ -60,3 +60,8 @@ options:
   level: dev
   desc: The io depth limit to submit journal records
   default: 2
+- name: seastore_zns_create
+  type: bool
+  level: dev
+  desc: do check_create_device, TODO
+  default: true
