@@ -26,6 +26,7 @@ def path_to_examples(ctx, cluster_name : str) -> str:
     for p in ['rook/deploy/examples/', 'rook/cluster/examples/kubernetes/ceph/']:
         try: 
            ctx.rook[cluster_name].remote.get_file(p + 'operator.yaml')
+           log.info(f'using {p}')
            return p
         except:
             pass 
@@ -105,7 +106,7 @@ def rook_operator(ctx, config):
     log.info(os.path.abspath(os.getcwd()))
     object_methods = [method_name for method_name in dir(ctx.rook[cluster_name].remote)
                   if callable(getattr(ctx.rook[cluster_name].remote, method_name))]
-    log.info(object_methods)
+    log.info(f'Object methods: {object_methods}')
     operator_yaml = ctx.rook[cluster_name].remote.read_file(
         (path_to_examples(ctx, cluster_name) + 'operator.yaml')
     )
