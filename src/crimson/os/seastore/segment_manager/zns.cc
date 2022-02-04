@@ -183,7 +183,7 @@ static write_ertr::future<> do_writev(
   size_t block_size)
 {
   logger().error(
-    "block: do_writev offset {} len {}",
+    "zns: do_writev offset {} len {}",
     offset,
     bl.length());
   // writev requires each buffer to be aligned to the disks' block
@@ -239,7 +239,7 @@ static read_ertr::future<> do_read(
 {
   assert(len <= bptr.length());
   logger().debug(
-    "block: do_read offset {} len {}",
+    "zns: do_read offset {} len {}",
     offset,
     len);
   return device.dma_read(
@@ -520,7 +520,7 @@ Segment::write_ertr::future<> ZNSSegmentManager::segment_write(
   assert((bl.length() % metadata.block_size) == 0);
   auto& seg_addr = addr.as_seg_paddr();
   logger().debug(
-    "BlockSegmentManager::segment_write: "
+    "ZNSSegmentManager::segment_write: "
     "segment_write to segment {} at offset {}, physical offset {}, len {}",
     seg_addr.get_segment_id(),
     seg_addr.get_segment_off(),
