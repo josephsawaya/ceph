@@ -68,6 +68,8 @@ namespace crimson::os::seastore::segment_manager::zns {
     ZNSSegment(ZNSSegmentManager &man, segment_id_t i) : manager(man), id(i){};
 
     segment_id_t get_segment_id() const final { return id; }
+    device_segment_id_t get_device_segment_id() const { return id.device_segment_id(); }
+    device_id_t get_device_id() const { return id.device_id(); }
     seastore_off_t get_write_capacity() const final;
     seastore_off_t get_write_ptr() const final { return write_pointer; }
     close_ertr::future<> close() final;

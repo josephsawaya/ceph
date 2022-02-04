@@ -521,8 +521,10 @@ Segment::write_ertr::future<> ZNSSegmentManager::segment_write(
   auto& seg_addr = addr.as_seg_paddr();
   logger().debug(
     "ZNSSegmentManager::segment_write: "
-    "segment_write to segment {} at offset {}, physical offset {}, len {}",
+    "segment_write to segment {} (device_segment_id: {}, device_id: {}) at offset {}, physical offset {}, len {}",
     seg_addr.get_segment_id(),
+    seg_addr.get_device_segment_id(),
+    seg_addr.get_device_id(),
     seg_addr.get_segment_off(),
     get_offset(addr),
     bl.length());
