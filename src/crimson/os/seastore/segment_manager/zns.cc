@@ -204,7 +204,7 @@ static write_ertr::future<> do_writev(
 	      e);
             return crimson::ct_error::input_output_error::make();
           }
-        ).then([bl=std::move(bl)/* hold the buf until the end of io */](size_t written) 
+        ).then([bl=std::move(bl)/* hold the buf until the end of io */, &elem](size_t written) 
           -> write_ertr::future<> {
             if (written != elem.length) {
               return crimson::ct_error::input_output_error::make();
