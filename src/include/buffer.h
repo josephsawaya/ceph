@@ -1204,6 +1204,7 @@ struct error_code;
     };
     using iov_vec_t = std::vector<iovec_t>;
     iov_vec_t prepare_iovs() const;
+    iov_vec_t prepare_iovs(unsigned size_limit) const;
 
     uint32_t crc32c(uint32_t crc) const;
     void invalidate_crc();

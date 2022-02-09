@@ -14,6 +14,7 @@
 
 #include <atomic>
 #include <cstring>
+#include <math.h>
 #include <errno.h>
 #include <limits.h>
 
@@ -2054,6 +2055,42 @@ buffer::list::iov_vec_t buffer::list::prepare_iovs() const
       // continue with a new vector<iov> if we have more buf
       ++it;
       index = 0;
+    }
+  }
+  return iovs;
+}
+
+buffer::list::iov_vec_t buffer::list::prepare_iovs(unsigned size_limit) const
+{
+  size_t index = 0;
+  uint64_t off = 0;
+  unsigned num = 0;
+  for (auto& bp : _buffers) {
+    if (bp.length() > size_limit){
+      num += (unsigned) std::ceil((float) bp.length() / (float)size_limit);
+    }
+  }
+  iov_vec_t iovs{num / IOV_MAX + 1};
+  auto it = iovs.begin();
+  for (auto& bp : _buffers) {
+    for(unsigned i = 0; i < bp.length(); i+=size_limit) {
+      if (index == 0) {
+      	it->offset = off;
+      	it->length = 0;
+      	unsigned nr_iov_created = std::distance(iovs.begin(), it);
+      	it->iov.resize(
+	  std::min(num - IOV_MAX * nr_iov_created, (unsigned)IOV_MAX));
+      }
+      it->iov[index].iov_base = (void*)(bp.c_str() + i);
+      unsigned len = std::min(size_limit, bp.length() - i);
+      it->iov[index].iov_len = std::min(size_limit, len - i);
+      off += len;
+      it->length += len;
+      if (++index == IOV_MAX) {
+      	// continue with a new vector<iov> if we have more buf
+      	++it;
+      	index = 0;
+      }
     }
   }
   return iovs;
