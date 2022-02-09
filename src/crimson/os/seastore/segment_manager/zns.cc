@@ -195,23 +195,24 @@ static write_ertr::future<> do_writev(
     std::move(bl),
     [offset, &device] (auto& iovs, auto& bl) {
       return seastar::do_for_each(iovs, [offset, &bl, &device] (auto& elem) {
-        return device.dma_write(
-          offset,
-          std::move(elem.iov)
-        ).handle_exception(
-          [](auto e) -> write_ertr::future<size_t> {
-            logger().error(
-	      "do_writev: dma_write got error {}",
-	      e);
-            return crimson::ct_error::input_output_error::make();
-          }
-        ).then([bl=std::move(bl)/* hold the buf until the end of io */, &elem](size_t written) 
-          -> write_ertr::future<> {
-            if (written != elem.length) {
-              return crimson::ct_error::input_output_error::make();
-            }
-            return write_ertr::now();
-        });
+        return write_ertr::now();
+        // return device.dma_write(
+        //   offset,
+        //   std::move(elem.iov)
+        // ).handle_exception(
+        //   [](auto e) -> write_ertr::future<size_t> {
+        //     logger().error(
+	//       "do_writev: dma_write got error {}",
+	//       e);
+        //     return crimson::ct_error::input_output_error::make();
+        //   }
+        // ).then([bl=std::move(bl)/* hold the buf until the end of io */, &elem](size_t written) 
+        //   -> write_ertr::future<> {
+        //     if (written != elem.length) {
+        //       return crimson::ct_error::input_output_error::make();
+        //     }
+        //     return write_ertr::now();
+        // });
       });
   });
 }
