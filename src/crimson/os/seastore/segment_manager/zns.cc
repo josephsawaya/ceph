@@ -193,8 +193,8 @@ static write_ertr::future<> do_writev(
   return seastar::do_with(
     bl.prepare_iovs(),
     std::move(bl),
-    [=, &device] (auto& iovs) {
-      return seastar::do_for_each(iovs, [=, &device] (auto& elem) {
+    [&device] (auto& iovs, auto& bl) {
+      return seastar::do_for_each(iovs, [&device] (auto& elem) {
         return device.dma_write(
           offset,
           std::move(elem.iov)
