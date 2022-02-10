@@ -2073,25 +2073,29 @@ buffer::list::iov_vec_t buffer::list::prepare_iovs(unsigned size_limit) const
   iov_vec_t iovs{num / IOV_MAX + 1};
   auto it = iovs.begin();
   for (auto& bp : _buffers) {
-    for(unsigned i = 0; i < bp.length(); i+=size_limit) {
+    // for(unsigned i = 0; i < bp.length(i); i+=size_limit) {
       if (index == 0) {
       	it->offset = off;
       	it->length = 0;
       	unsigned nr_iov_created = std::distance(iovs.begin(), it);
       	it->iov.resize(
-	  std::min(num - IOV_MAX * nr_iov_created, (unsigned)IOV_MAX));
+          std::min(num - IOV_MAX * nr_iov_created, (unsigned)IOV_MAX));
       }
-      it->iov[index].iov_base = (void*)(bp.c_str() + i);
-      unsigned len = std::min(size_limit, bp.length() - i);
-      it->iov[index].iov_len = std::min(size_limit, len - i);
-      off += len;
-      it->length += len;
+      // it->iov[index].iov_base = (void*)(bp.c_str() + i);
+     // it->iov[index].iov_base = (void*)(bp.c_str());
+     // // unsigned len = std::min(size_limit, bp.length() - i);
+     // // it->iov[index].iov_len = len;
+     // it->iov[index].iov_len = bp.length();
+     // // off += len;
+     // off += bp.length();
+     // // it->length += len;
+     // it->length += bp.length();
       if (++index == IOV_MAX) {
       	// continue with a new vector<iov> if we have more buf
       	++it;
       	index = 0;
       }
-    }
+    // }
   }
   return iovs;
 }

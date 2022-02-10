@@ -4,6 +4,7 @@
 #include <sys/mman.h>
 #include <string.h>
 #include <linux/blkzoned.h>
+#include <exception>
 
 #include "crimson/os/seastore/segment_manager/zns.h"
 #include "crimson/common/config_proxy.h"
@@ -181,17 +182,47 @@ static write_ertr::future<> do_writev(
   uint64_t offset,
   bufferlist&& bl,
   size_t block_size)
-{
+{ 
   logger().error(
     "zns: do_writev offset {} len {}",
     offset,
     bl.length());
   // writev requires each buffer to be aligned to the disks' block
   // size, we need to rebuild here
-  size_t size = 512 * 1024;
-  bl.rebuild_aligned(size);
-  bl.prepare_iovs(size);
-  return write_ertr::now();
+  size_t size = block_size;
+  bl.rebuild_aligned(block_size);
+  return seastar::do_with(
+    bl.prepare_iovs(size),
+    std::move(bl),
+    [&device, offset] (auto& iovs, auto& bl) -> seastar::future<> {
+      return seastar::do_for_each(
+        iovs,
+        [&device, &bl, offset] (auto& iov) {
+          logger().error("zns: do_writev: iov len: {}", iov.length);
+          return device.dma_write(
+            offset,
+            std::move(iov.iov)
+          ).then([&bl] (size_t written) -> seastar::future<> {
+            if(written != bl.length()){
+              logger().error("zns: do_writev error: size written not equal to bl length"); 
+              return seastar::make_exception_future<>(std::exception());
+            }
+            logger().error("zns: do_writev worked");
+            return seastar::now();
+          }).handle_exception(
+            [](auto e) -> seastar::future<> {
+              logger().error("zns: do_writev error: exception during dma_write");
+              return seastar::make_exception_future<void>("zns: do_writev error: exception during dma_write"); 
+          });
+      });
+  }).handle_exception([=] (auto e) -> write_ertr::future<> {
+    logger().error(
+      "do_write: dma_write got error {}",
+      e);
+    return crimson::ct_error::input_output_error::make();
+  }).then([=] () -> write_ertr::future<> {
+    return write_ertr::now();
+  });
 }
 
 static ZNSSegmentManager::access_ertr::future<>
