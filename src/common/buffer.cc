@@ -2035,67 +2035,38 @@ int buffer::list::write_fd(int fd, uint64_t offset) const
 
 buffer::list::iov_vec_t buffer::list::prepare_iovs() const
 {
-  size_t index = 0;
-  uint64_t off = 0;
-  iov_vec_t iovs{_num / IOV_MAX + 1};
-  auto it = iovs.begin();
-  for (auto& bp : _buffers) {
-    if (index == 0) {
-      it->offset = off;
-      it->length = 0;
-      size_t nr_iov_created = std::distance(iovs.begin(), it);
-      it->iov.resize(
-	std::min(_num - IOV_MAX * nr_iov_created, (size_t)IOV_MAX));
-    }
-    it->iov[index].iov_base = (void*)bp.c_str();
-    it->iov[index].iov_len = bp.length();
-    off += bp.length();
-    it->length += bp.length();
-    if (++index == IOV_MAX) {
-      // continue with a new vector<iov> if we have more buf
-      ++it;
-      index = 0;
-    }
-  }
-  return iovs;
+  return prepare_iovs(std::numeric_limits<size_t>::max());
 }
 
-buffer::list::iov_vec_t buffer::list::prepare_iovs(unsigned size_limit) const
+buffer::list::iov_vec_t buffer::list::prepare_iovs(size_t size_limit) const
 {
-  size_t index = 0;
   uint64_t off = 0;
-  unsigned num = 0;
+  size_t num = 0;
   for (auto& bp : _buffers) {
-    if (bp.length() > size_limit){
-      num += (unsigned) std::ceil((float) bp.length() / (float)size_limit);
-    }
+    num += (size_t) std::ceil( ((bp.length() - 1) / size_limit) + 1);
   }
-  iov_vec_t iovs{num / IOV_MAX + 1};
+  buffer::list::iov_vec_t iovs;
   auto it = iovs.begin();
   for (auto& bp : _buffers) {
-    // for(unsigned i = 0; i < bp.length(i); i+=size_limit) {
-      if (index == 0) {
-      	it->offset = off;
-      	it->length = 0;
-      	unsigned nr_iov_created = std::distance(iovs.begin(), it);
-      	it->iov.resize(
-          std::min(num - IOV_MAX * nr_iov_created, (unsigned)IOV_MAX));
+    for(size_t i = 0; i < bp.length(); i+=std::min(size_limit, (size_t) bp.length() - i)) {
+      iovec io;
+      io.iov_base = (void*)(bp.c_str() + i);
+      io.iov_len = std::min(size_limit, (size_t) bp.length() - i);
+      // if buffer chunk of max size size_limit cannot fit in the rest of the vector
+      // move on to the next vector
+      if (it != iovs.end() && (it->length + io.iov_len > size_limit)) it++;
+      if (it == iovs.end()){
+        it = iovs.insert(it, buffer::list::iovec_t());
+        it->offset = off;
+        it->length = 0;
       }
-      // it->iov[index].iov_base = (void*)(bp.c_str() + i);
-     // it->iov[index].iov_base = (void*)(bp.c_str());
-     // // unsigned len = std::min(size_limit, bp.length() - i);
-     // // it->iov[index].iov_len = len;
-     // it->iov[index].iov_len = bp.length();
-     // // off += len;
-     // off += bp.length();
-     // // it->length += len;
-     // it->length += bp.length();
-      if (++index == IOV_MAX) {
-      	// continue with a new vector<iov> if we have more buf
-      	++it;
-      	index = 0;
+      off += io.iov_len;
+      it->length += io.iov_len;
+      it->iov.push_back(std::move(io));
+      if (it->iov.size() > IOV_MAX) {
+        it++;
       }
-    // }
+    }
   }
   return iovs;
 }

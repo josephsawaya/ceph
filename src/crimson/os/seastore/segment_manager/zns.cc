@@ -10,6 +10,7 @@
 #include "crimson/common/config_proxy.h"
 #include "crimson/common/log.h"
 #include "include/buffer.h"
+#include "crimson/common/errorator.h"
 
 namespace {
 seastar::logger &logger(){
@@ -48,7 +49,7 @@ static zns_sm_metadata_t make_metadata(
   seastore_meta_t meta,
   const seastar::stat_data &data,
   size_t zone_size,
-  size_t zone_capacity,
+  uint64_t zone_capacity,
   size_t num_zones)
 {
   using crimson::common::get_conf;
@@ -61,7 +62,7 @@ static zns_sm_metadata_t make_metadata(
   auto config_segment_size = get_conf<Option::size_t>(
     "seastore_segment_size");
   logger().error("CONFIG SIZE: {}", config_segment_size);
-  size_t zones_per_segment = config_segment_size / zone_capacity;
+  size_t zones_per_segment = config_segment_size / (size_t) zone_capacity;
   
   size_t segments = (num_zones - 1) * zones_per_segment;
   
@@ -78,7 +79,7 @@ static zns_sm_metadata_t make_metadata(
   zns_sm_metadata_t ret = zns_sm_metadata_t{
     size,
     config_segment_size,
-    zone_capacity * zones_per_segment,
+    config_segment_size,
     zones_per_segment,
     zone_capacity,
     data.block_size,
@@ -124,7 +125,7 @@ static seastar::future<> reset_device(
   );
 }
 
-static seastar::future<size_t> get_zone_capacity(
+static seastar::future<uint64_t> get_zone_capacity(
   seastar::file &device, 
   uint32_t zone_size, 
   uint32_t nr_zones)
@@ -139,11 +140,17 @@ static seastar::future<size_t> get_zone_capacity(
 	BLKOPENZONE, 
 	&first_zone_range
       ).then([&](int ret){
+        return device.ioctl(
+          BLKFINISHZONE,
+          &first_zone_range);
+      }).then([&](int ret){
+        zr.hdr->sector= 0;
+        zr.hdr->nr_zones = nr_zones;
 	return device.ioctl(BLKREPORTZONE, zr.hdr);
       }).then([&] (int ret){
 	return device.ioctl(BLKRESETZONE, &first_zone_range);
       }).then([&](int ret){
-	return seastar::make_ready_future<size_t>(zr.hdr->zones[0].wp);
+	return seastar::make_ready_future<uint64_t>(zr.hdr->zones[0].wp);
       });
     }
   );
@@ -194,34 +201,29 @@ static write_ertr::future<> do_writev(
   return seastar::do_with(
     bl.prepare_iovs(size),
     std::move(bl),
-    [&device, offset] (auto& iovs, auto& bl) -> seastar::future<> {
-      return seastar::do_for_each(
+    [&device, offset] (auto& iovs, auto& bl) -> write_ertr::future<> {
+      return crimson::do_for_each(
         iovs,
-        [&device, &bl, offset] (auto& iov) {
-          logger().error("zns: do_writev: iov len: {}", iov.length);
+        [&device, &bl, offset] (auto& iov) -> write_ertr::future<> {
+          logger().error("zns: do_writev: iov len: {}, iov offset: {}, offset + iov.offset: {}", iov.length, iov.offset, offset + iov.offset);
+          auto len = iov.length;
+          auto iov_offset = iov.offset;
           return device.dma_write(
-            offset,
+            offset + iov.offset,
             std::move(iov.iov)
-          ).then([&bl] (size_t written) -> seastar::future<> {
-            if(written != bl.length()){
-              logger().error("zns: do_writev error: size written not equal to bl length"); 
-              return seastar::make_exception_future<>(std::exception());
-            }
-            logger().error("zns: do_writev worked");
-            return seastar::now();
-          }).handle_exception(
-            [](auto e) -> seastar::future<> {
+          ).handle_exception(
+            [](auto e) -> write_ertr::future<size_t> {
               logger().error("zns: do_writev error: exception during dma_write");
-              return seastar::make_exception_future<void>("zns: do_writev error: exception during dma_write"); 
+              return crimson::ct_error::input_output_error::make(); 
+          }).then([&bl, len, iov_offset] (size_t written) -> write_ertr::future<> {
+            if(written != len){
+              logger().error("zns: do_writev error: size written not equal to bl length"); 
+              return crimson::ct_error::input_output_error::make();
+            }
+            logger().error("zns: do_writev worked, wrote {} at {}", len, iov_offset);
+            return write_ertr::now();
           });
-      });
-  }).handle_exception([=] (auto e) -> write_ertr::future<> {
-    logger().error(
-      "do_write: dma_write got error {}",
-      e);
-    return crimson::ct_error::input_output_error::make();
-  }).then([=] () -> write_ertr::future<> {
-    return write_ertr::now();
+     });
   });
 }
 
@@ -347,7 +349,8 @@ ZNSSegmentManager::mkfs_ret ZNSSegmentManager::mkfs(
 	  return reset_device(device, zone_size, nr_zones);
 	}).then([&] {
 	  return get_zone_capacity(device, zone_size, nr_zones); 
-	}).then([&, config] (auto zone_capacity){
+	}).then([&, config] (uint64_t zone_capacity){
+          logger().error("ZONE_CAP: {}", (uint64_t) zone_capacity);
 	  sb = make_metadata(
 	    config.meta, 
 	    stat, 

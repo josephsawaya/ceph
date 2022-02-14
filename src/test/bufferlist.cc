@@ -3084,6 +3084,54 @@ TEST(BufferHash, all) {
   }
 }
 
+void test_prepare_iov(int step){
+  bufferlist bl;
+  std::array<char, 1048576> src = { 0, };
+  for (auto iter = std::begin(src);
+    iter != std::end(src);
+    iter = std::next(iter, step)) {
+      bl.append(&*iter, step);
+  }
+  size_t size_limit = 1024;
+  size_t sum = 0;
+  buffer::list::iov_vec_t iov_vecs = bl.prepare_iovs(size_limit);
+  for(auto& iov_vec : iov_vecs){
+    EXPECT_LE(iov_vec.length, size_limit);
+    for(auto& iov : iov_vec.iov){
+      EXPECT_LE(iov.iov_len, size_limit);
+      sum += iov.iov_len;
+    }
+  }
+  EXPECT_EQ(sum, bl.length());
+}
+
+TEST(BufferList, prepare_iovs) {
+  test_prepare_iov(512);
+  test_prepare_iov(1024);
+  test_prepare_iov(2048);
+  test_prepare_iov(1048576);
+}
+
+TEST(BufferList, prepare_iovs_split_buffer) {
+  bufferlist bl;
+  std::array<char, 512> src1 = {0, };
+  std::array<char, 1024> src2 = {0, };
+  bl.append(std::begin(src1), 512);
+  bl.append(std::begin(src2), 1024);
+  size_t size_limit = 1024;
+  size_t sum = 0;
+  buffer::list::iov_vec_t iov_vecs = bl.prepare_iovs(size_limit);
+  for(auto& iov_vec : iov_vecs){                                                                                                                                                                     
+    EXPECT_LE(iov_vec.length, size_limit);                                                                                                                                                           
+    for(auto& iov : iov_vec.iov){                                                                                                                                                                    
+      EXPECT_LE(iov.iov_len, size_limit);                                                                                                                                                            
+      sum += iov.iov_len;                                                                                                                                                                            
+    }                                                                                                                                                                                                
+  }                                                                                                                                                                                                  
+  EXPECT_EQ(sum, bl.length());
+  EXPECT_EQ(iov_vecs[0].length, 512);
+  EXPECT_EQ(iov_vecs[1].length, 1024);
+}
 /*
  * Local Variables:
  * compile-command: "cd .. ; make unittest_bufferlist && 

@@ -24,7 +24,7 @@ namespace crimson::os::seastore::segment_manager::zns {
     size_t segment_size = 0;
     size_t segment_capacity = 0;
     size_t zones_per_segment = 0;
-    size_t zone_capacity = 0;
+    uint64_t zone_capacity = 0;
     size_t block_size = 0;
     size_t segments = 0;
     size_t zone_size = 0;
